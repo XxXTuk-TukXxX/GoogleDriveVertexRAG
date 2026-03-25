@@ -1,0 +1,31 @@
+# Local environment and credentials
+.env
+.env.local
+.env.*.local
+.secrets/
+
+# Virtualenvs and Python caches
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+*.pyc
+*.pyo
+*.pyd
+
+# Coverage and test artifacts
+.coverage
+.coverage.*
+htmlcov/
+
+# Packaging artifacts
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# OS and editor noise
+.DS_Store
