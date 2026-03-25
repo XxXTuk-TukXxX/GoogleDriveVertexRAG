@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
+from googleapiclient.discovery import Resource
 
 from drive_vertex_cli.chunking import chunk_text
+from drive_vertex_cli.config import Settings
 from drive_vertex_cli.drive_client import (
     DriveDocument,
     build_drive_service,
@@ -18,6 +21,8 @@ from drive_vertex_cli.vertex_client import VertexClient
 
 @dataclass(slots=True)
 class SyncStats:
+    """Summary of a completed sync run."""
+
     indexed_file_count: int
     skipped_file_count: int
     chunk_count: int
@@ -26,14 +31,16 @@ class SyncStats:
 
 def sync_folder(
     *,
-    settings,
+    settings: Settings,
     folder_id: str,
-    index_dir,
+    index_dir: Path,
     recursive: bool,
     chunk_size_tokens: int,
     chunk_overlap_tokens: int,
     batch_size: int,
 ) -> SyncStats:
+    """Read a Drive folder, chunk its text, and write a fresh local vector index."""
+
     service = build_drive_service(settings)
     vertex = VertexClient(
         project=settings.google_cloud_project,
@@ -116,11 +123,13 @@ def sync_folder(
 
 def _document_to_chunks(
     *,
-    service,
+    service: Resource,
     document: DriveDocument,
     chunk_size_tokens: int,
     chunk_overlap_tokens: int,
 ) -> tuple[list[ChunkRecord], list[str]]:
+    """Convert one Drive document into chunk records and embedding payloads."""
+
     name, mime_type, payload = download_document(service, document)
     text = extract_text(name, mime_type, payload)
     chunks = chunk_text(

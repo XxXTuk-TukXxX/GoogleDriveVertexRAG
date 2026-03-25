@@ -16,16 +16,22 @@ When you answer, cite source file names inline."""
 
 @dataclass(slots=True)
 class RetrievalAnswer:
+    """A grounded answer plus the retrieved chunks that supported it."""
+
     answer: str
     hits: list[SearchHit]
 
 
 class DriveCorpusRetriever:
+    """Answer questions over a prebuilt local index using Gemini tool calling."""
+
     def __init__(self, index: LocalIndex, vertex: VertexClient) -> None:
         self.index = index
         self.vertex = vertex
 
     def search(self, query: str, top_k: int = 5) -> list[SearchHit]:
+        """Embed a query and return the most relevant chunks from the local index."""
+
         embedding = self.vertex.embed_query(
             query,
             model=self.index.manifest.embedding_model,
@@ -43,9 +49,11 @@ class DriveCorpusRetriever:
         conversation_max_turns: int = 6,
         conversation_history: Sequence[tuple[str, str]] | None = None,
     ) -> RetrievalAnswer:
+        """Run retrieval-augmented generation against the indexed Drive corpus."""
+
         latest_hits: list[SearchHit] = []
 
-        def search_drive_corpus(query: str, top_k: int = default_top_k) -> dict:
+        def search_drive_corpus(query: str, top_k: int = default_top_k) -> dict[str, list[dict[str, object]]]:
             """Retrieve the most relevant snippets from the indexed Google Drive corpus.
 
             Args:
@@ -117,6 +125,8 @@ class DriveCorpusRetriever:
 
         contents.append(types.Content(role="user", parts=function_response_parts))
 
+        # Automatic tool calling is disabled so the library can keep tight control
+        # over what gets executed and what response text is surfaced to the caller.
         final_response = self.vertex.generate_content(
             contents=contents,
             model=model,
@@ -142,6 +152,8 @@ def build_prompt(
     *,
     max_turns: int = 6,
 ) -> str:
+    """Build the grounded user prompt from the latest conversation turns."""
+
     if max_turns <= 0:
         return question
 

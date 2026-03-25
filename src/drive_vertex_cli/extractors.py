@@ -11,10 +11,14 @@ from pptx import Presentation
 
 
 class UnsupportedFileTypeError(RuntimeError):
+    """Raised when a downloaded Drive file has no configured text extractor."""
+
     pass
 
 
 class HTMLTextParser(HTMLParser):
+    """Very small HTML-to-text parser for lightweight document extraction."""
+
     def __init__(self) -> None:
         super().__init__()
         self.parts: list[str] = []
@@ -45,6 +49,8 @@ TEXT_MIME_TYPES = {
 
 
 def extract_text(name: str, mime_type: str, payload: bytes) -> str:
+    """Convert a downloaded document payload into plain text."""
+
     suffix = Path(name).suffix.lower()
 
     if mime_type == "text/html" or suffix in {".html", ".htm"}:
@@ -85,6 +91,8 @@ def extract_text(name: str, mime_type: str, payload: bytes) -> str:
 
 
 def _extract_pdf(payload: bytes) -> str:
+    """Extract concatenated text from a PDF payload."""
+
     reader = PdfReader(BytesIO(payload))
     pages = []
     for page in reader.pages:
@@ -95,12 +103,16 @@ def _extract_pdf(payload: bytes) -> str:
 
 
 def _extract_docx(payload: bytes) -> str:
+    """Extract paragraph text from a DOCX payload."""
+
     document = Document(BytesIO(payload))
     paragraphs = [paragraph.text.strip() for paragraph in document.paragraphs]
     return "\n".join(paragraph for paragraph in paragraphs if paragraph)
 
 
 def _extract_pptx(payload: bytes) -> str:
+    """Extract visible slide text from a PPTX payload."""
+
     presentation = Presentation(BytesIO(payload))
     slides: list[str] = []
     for index, slide in enumerate(presentation.slides, start=1):
@@ -116,6 +128,8 @@ def _extract_pptx(payload: bytes) -> str:
 
 
 def _extract_xlsx(payload: bytes) -> str:
+    """Extract a row-oriented text view from an XLSX payload."""
+
     workbook = load_workbook(BytesIO(payload), read_only=True, data_only=True)
     try:
         sheets: list[str] = []

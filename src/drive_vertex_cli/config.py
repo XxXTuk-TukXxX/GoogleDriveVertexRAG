@@ -10,11 +10,15 @@ load_dotenv()
 
 
 class ConfigurationError(RuntimeError):
+    """Raised when environment-backed configuration is missing or invalid."""
+
     pass
 
 
 @dataclass(slots=True)
 class Settings:
+    """Runtime configuration loaded from environment variables."""
+
     google_cloud_project: str
     google_cloud_location: str
     google_application_credentials: Path | None
@@ -32,6 +36,8 @@ class Settings:
 
 
 def _read_path(env_name: str) -> Path | None:
+    """Return an expanded path from an environment variable, if present."""
+
     value = os.getenv(env_name)
     if not value:
         return None
@@ -39,6 +45,8 @@ def _read_path(env_name: str) -> Path | None:
 
 
 def _read_int(env_name: str, default: int, *, minimum: int | None = None) -> int:
+    """Parse an integer setting with optional lower-bound validation."""
+
     raw_value = os.getenv(env_name)
     if raw_value in {None, ""}:
         value = default
@@ -54,6 +62,8 @@ def _read_int(env_name: str, default: int, *, minimum: int | None = None) -> int
 
 
 def _read_float(env_name: str, default: float, *, minimum: float | None = None) -> float:
+    """Parse a float setting with optional lower-bound validation."""
+
     raw_value = os.getenv(env_name)
     if raw_value in {None, ""}:
         value = default
@@ -69,6 +79,8 @@ def _read_float(env_name: str, default: float, *, minimum: float | None = None) 
 
 
 def load_settings(*, require_project: bool = True) -> Settings:
+    """Load the library configuration from the current process environment."""
+
     project = os.getenv("GOOGLE_CLOUD_PROJECT")
     if require_project and not project:
         raise ConfigurationError("GOOGLE_CLOUD_PROJECT is required.")

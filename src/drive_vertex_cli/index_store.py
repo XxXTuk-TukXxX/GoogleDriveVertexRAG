@@ -10,6 +10,8 @@ import numpy as np
 
 @dataclass(slots=True)
 class ChunkRecord:
+    """A single embedded document chunk stored in the local index."""
+
     chunk_id: str
     file_id: str
     file_name: str
@@ -24,6 +26,8 @@ class ChunkRecord:
 
 @dataclass(slots=True)
 class IndexManifest:
+    """Metadata describing how a local index was built."""
+
     version: int
     synced_at: str
     folder_id: str
@@ -37,11 +41,15 @@ class IndexManifest:
 
 @dataclass(slots=True)
 class SearchHit:
+    """A retrieved chunk plus its similarity score."""
+
     score: float
     record: ChunkRecord
 
 
 class LocalIndex:
+    """On-disk NumPy-backed vector index used by the library and CLI."""
+
     def __init__(
         self,
         manifest: IndexManifest,
@@ -53,7 +61,9 @@ class LocalIndex:
         self.embeddings = embeddings.astype(np.float32)
 
     @classmethod
-    def load(cls, index_dir: Path) -> "LocalIndex":
+    def load(cls: type["LocalIndex"], index_dir: Path) -> "LocalIndex":
+        """Load a previously saved local index from disk."""
+
         manifest_path = index_dir / "manifest.json"
         chunks_path = index_dir / "chunks.jsonl"
         embeddings_path = index_dir / "embeddings.npy"
@@ -74,7 +84,7 @@ class LocalIndex:
 
     @classmethod
     def build(
-        cls,
+        cls: type["LocalIndex"],
         *,
         folder_id: str,
         embedding_model: str,
@@ -85,6 +95,8 @@ class LocalIndex:
         embeddings: np.ndarray,
         file_count: int,
     ) -> "LocalIndex":
+        """Construct an in-memory index from chunk records and raw embeddings."""
+
         manifest = IndexManifest(
             version=1,
             synced_at=datetime.now(timezone.utc).isoformat(),
@@ -99,6 +111,8 @@ class LocalIndex:
         return cls(manifest, chunks, normalize_embeddings(embeddings))
 
     def save(self, index_dir: Path) -> None:
+        """Persist the manifest, chunks, and normalized embeddings to disk."""
+
         index_dir.mkdir(parents=True, exist_ok=True)
         (index_dir / "manifest.json").write_text(json.dumps(asdict(self.manifest), indent=2))
         (index_dir / "chunks.jsonl").write_text(
@@ -107,6 +121,8 @@ class LocalIndex:
         np.save(index_dir / "embeddings.npy", self.embeddings)
 
     def search(self, query_embedding: np.ndarray, top_k: int = 5) -> list[SearchHit]:
+        """Return the highest-scoring chunks for a query embedding."""
+
         if self.embeddings.size == 0:
             return []
 
@@ -121,10 +137,13 @@ class LocalIndex:
 
 
 def normalize_embeddings(embeddings: np.ndarray) -> np.ndarray:
+    """L2-normalize embeddings so dot products behave like cosine similarity."""
+
     values = embeddings.astype(np.float32)
     if values.ndim == 1:
         values = values.reshape(1, -1)
 
+    # Zero vectors are preserved by treating their norm as 1.0.
     norms = np.linalg.norm(values, axis=1, keepdims=True)
     norms = np.where(norms == 0, 1.0, norms)
     return values / norms

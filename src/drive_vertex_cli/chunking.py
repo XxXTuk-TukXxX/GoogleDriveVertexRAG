@@ -9,15 +9,21 @@ WHITESPACE_PATTERN = re.compile(r"\s+")
 
 @dataclass(slots=True)
 class TextChunk:
+    """A token-bounded chunk ready for embedding."""
+
     text: str
     token_count: int
 
 
 def normalize_text(text: str) -> str:
+    """Normalize line endings and trim surrounding whitespace."""
+
     return text.replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
 def count_tokens(text: str) -> int:
+    """Approximate token count with a lightweight regex tokenizer."""
+
     return len(list(TOKEN_PATTERN.finditer(text)))
 
 
@@ -28,6 +34,8 @@ def chunk_text(
     overlap_tokens: int = 60,
     min_tokens: int = 25,
 ) -> list[TextChunk]:
+    """Split extracted document text into overlapping chunks for retrieval."""
+
     normalized = normalize_text(text)
     if not normalized:
         return []

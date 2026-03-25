@@ -5,6 +5,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
+from google.auth.credentials import Credentials as BaseCredentials
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google.oauth2.service_account import Credentials as ServiceAccountCredentials
@@ -35,6 +36,8 @@ GOOGLE_APPS_EXPORTS = {
 
 @dataclass(slots=True)
 class DriveDocument:
+    """A non-folder Drive file discovered during folder traversal."""
+
     file_id: str
     name: str
     mime_type: str
@@ -45,6 +48,8 @@ class DriveDocument:
 
 @dataclass(slots=True)
 class DriveFolderStatus:
+    """Metadata used to verify that a configured folder is reachable."""
+
     folder_id: str
     name: str
     web_view_link: str | None
@@ -53,17 +58,23 @@ class DriveFolderStatus:
 
 @dataclass(slots=True)
 class DriveFolderOption:
+    """A folder that can be shown to the user for interactive selection."""
+
     folder_id: str
     name: str
     web_view_link: str | None
 
 
 def build_drive_service(settings: Settings) -> Resource:
+    """Build an authenticated Google Drive API client from the active settings."""
+
     credentials = _load_drive_credentials(settings)
     return build("drive", "v3", credentials=credentials, cache_discovery=False)
 
 
-def _load_drive_credentials(settings: Settings):
+def _load_drive_credentials(settings: Settings) -> BaseCredentials:
+    """Load Drive credentials from either a service account or local OAuth cache."""
+
     if settings.drive_service_account_file:
         return ServiceAccountCredentials.from_service_account_file(
             str(settings.drive_service_account_file), scopes=DRIVE_SCOPES
@@ -100,6 +111,8 @@ def list_documents(
     *,
     recursive: bool = True,
 ) -> list[DriveDocument]:
+    """List supported Drive files inside a folder, optionally recursing into subfolders."""
+
     documents: list[DriveDocument] = []
     _walk_folder(service, folder_id, "", documents, recursive=recursive)
     documents.sort(key=lambda document: document.drive_path.lower())
@@ -142,6 +155,8 @@ def _walk_folder(
             item_id = item["id"]
 
             if mime_type == SHORTCUT_MIME_TYPE:
+                # Shortcuts are resolved to their target files so the index contains the
+                # real document metadata rather than the lightweight pointer object.
                 target_id = item.get("shortcutDetails", {}).get("targetId")
                 if not target_id:
                     continue
@@ -178,6 +193,8 @@ def _walk_folder(
 
 
 def _get_file_metadata(service: Resource, file_id: str) -> dict[str, Any]:
+    """Fetch a small metadata view for a Drive file or shortcut target."""
+
     return (
         service.files()
         .get(
@@ -190,8 +207,11 @@ def _get_file_metadata(service: Resource, file_id: str) -> dict[str, Any]:
 
 
 def download_document(service: Resource, document: DriveDocument) -> tuple[str, str, bytes]:
+    """Download or export a Drive file into bytes ready for text extraction."""
+
     export_definition = GOOGLE_APPS_EXPORTS.get(document.mime_type)
     if export_definition:
+        # Native Google Workspace documents must be exported before extraction.
         export_mime_type, extension = export_definition
         request = service.files().export_media(
             fileId=document.file_id,
@@ -216,10 +236,14 @@ def download_document(service: Resource, document: DriveDocument) -> tuple[str, 
 
 
 def _ensure_suffix(name: str, suffix: str) -> str:
+    """Append a file suffix when a Drive export did not preserve one."""
+
     return name if Path(name).suffix else f"{name}{suffix}"
 
 
 def get_folder_status(service: Resource, folder_id: str) -> DriveFolderStatus:
+    """Return metadata for a folder and count the items visible inside it."""
+
     metadata = (
         service.files()
         .get(
@@ -241,6 +265,8 @@ def get_folder_status(service: Resource, folder_id: str) -> DriveFolderStatus:
 
 
 def _count_visible_children(service: Resource, folder_id: str) -> int:
+    """Count children visible to the authenticated principal for a folder."""
+
     total = 0
     page_token: str | None = None
     while True:
@@ -264,6 +290,8 @@ def _count_visible_children(service: Resource, folder_id: str) -> int:
 
 
 def list_accessible_folders(service: Resource) -> list[DriveFolderOption]:
+    """List folders visible to the authenticated account for interactive sync selection."""
+
     folders: list[DriveFolderOption] = []
     seen_ids: set[str] = set()
     page_token: str | None = None

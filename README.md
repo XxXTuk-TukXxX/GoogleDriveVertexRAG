@@ -10,6 +10,8 @@
 
 The implementation is intentionally simple: Google Drive is the system of record, Vertex AI provides embeddings and generation, and the vector index lives locally in `.cache/drive-vertex-index` by default.
 
+More detailed Python API notes live in [docs/library-reference.md](docs/library-reference.md).
+
 ## Supported File Types
 
 - Google Docs
@@ -45,8 +47,7 @@ drive-vertex auth
 
 If you prefer to edit the file manually, you can still `cp .env.example .env` and fill it in yourself.
 
-`drive-vertex auth` now does more than write `.env`:
-
+`drive-vertex auth`:
 - validates any credential file paths you enter
 - prints console steps when a required credential file is missing
 - creates or verifies Vertex AI Application Default Credentials when you choose `adc`
@@ -86,6 +87,12 @@ Import the library directly when you want to build this into another Python app:
 ```python
 from drive_vertex_cli import DriveVertexClient
 
+DriveVertexClient.setup_env(
+    google_cloud_project="project-42439",
+    drive_oauth_client_secret_file=".secrets/google-drive-oauth-client.json",
+    drive_token_file=".secrets/google-drive-token.json",
+)
+
 client = DriveVertexClient.from_env()
 client.sync(folder_id="YOUR_FOLDER_ID")
 
@@ -97,6 +104,27 @@ reply = chat.ask("Summarize the latest onboarding notes.")
 print(reply.answer)
 ```
 
+If you want the same guided setup flow as `drive-vertex auth`, you can also do:
+
+```python
+DriveVertexClient.setup_env(interactive=True, env_file=".env")
+client = DriveVertexClient.from_env()
+```
+
+If no default Drive folder is configured yet, the library can also prompt you to choose one during sync:
+
+```python
+client = DriveVertexClient.from_env()
+client.sync(interactive=True)
+```
+
+Or you can inspect/save the visible folders yourself:
+
+```python
+folders = client.get_folders()
+selected = client.choose_folder()
+```
+
 Useful public types exported by the package include:
 
 - `DriveVertexClient`
@@ -105,6 +133,8 @@ Useful public types exported by the package include:
 - `RetrievalAnswer`
 - `SyncStats`
 - `LocalIndex`
+
+The package itself now includes inline docstrings and type annotations across the public API, so editors should surface method-level help directly from the installed library.
 
 ## CLI Usage
 

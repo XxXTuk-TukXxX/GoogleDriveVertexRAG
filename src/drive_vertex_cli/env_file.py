@@ -10,6 +10,8 @@ ASSIGNMENT_PATTERN = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=
 
 
 def read_env_values(path: Path) -> dict[str, str]:
+    """Read a dotenv file into a plain string mapping."""
+
     if not path.exists():
         return {}
     parsed = dotenv_values(path)
@@ -17,6 +19,8 @@ def read_env_values(path: Path) -> dict[str, str]:
 
 
 def upsert_env_file(path: Path, updates: Mapping[str, str]) -> None:
+    """Update or append environment variables while preserving unrelated lines."""
+
     path.parent.mkdir(parents=True, exist_ok=True)
 
     existing_lines = path.read_text().splitlines() if path.exists() else []
@@ -51,6 +55,8 @@ def upsert_env_file(path: Path, updates: Mapping[str, str]) -> None:
 
 
 def serialize_env_value(value: str) -> str:
+    """Serialize an env var value, quoting only when shell-safe text is not enough."""
+
     if value == "":
         return ""
 

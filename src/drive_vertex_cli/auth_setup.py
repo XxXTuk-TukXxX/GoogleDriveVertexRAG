@@ -18,19 +18,32 @@ REQUIRED_SERVICES = (
     "drive.googleapis.com",
 )
 GOOGLE_CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
+EMPTY_PATH_ENV_VARS = (
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE",
+    "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_FILE",
+    "GOOGLE_DRIVE_TOKEN_FILE",
+    "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
+)
 
 
 class AuthSetupError(RuntimeError):
+    """Raised when the interactive auth setup cannot complete safely."""
+
     pass
 
 
 @dataclass(slots=True)
 class AuthSetupSummary:
+    """Human-readable outcome of the auth bootstrap flow."""
+
     completed_steps: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 
 def apply_env_updates(updates: Mapping[str, str]) -> None:
+    """Apply `.env` updates to the current process so follow-up steps see them."""
+
     for key, value in updates.items():
         if value == "":
             os.environ.pop(key, None)
@@ -39,6 +52,8 @@ def apply_env_updates(updates: Mapping[str, str]) -> None:
 
 
 def validate_existing_file(path_value: str, *, label: str) -> Path:
+    """Validate that a user-supplied credential file exists and is a regular file."""
+
     path = Path(path_value).expanduser()
     if not path.exists():
         raise AuthSetupError(f"{label} does not exist: {path}")
@@ -53,6 +68,8 @@ def complete_auth_setup(
     vertex_auth_mode: str,
     drive_auth_mode: str,
 ) -> AuthSetupSummary:
+    """Create or verify local auth state, enable APIs, and check Drive access."""
+
     summary = AuthSetupSummary()
 
     if vertex_auth_mode == "adc":
@@ -109,6 +126,8 @@ def complete_auth_setup(
 
 
 def _ensure_adc(project_id: str, summary: AuthSetupSummary) -> None:
+    """Ensure Application Default Credentials exist for local Vertex AI usage."""
+
     _require_gcloud()
 
     if _adc_available():
@@ -147,6 +166,8 @@ def _ensure_adc(project_id: str, summary: AuthSetupSummary) -> None:
 
 
 def _adc_available() -> bool:
+    """Return whether `gcloud` can currently mint an ADC access token."""
+
     try:
         result = _run_command(
             ["gcloud", "auth", "application-default", "print-access-token"],
@@ -158,6 +179,8 @@ def _adc_available() -> bool:
 
 
 def _get_adc_access_token() -> str:
+    """Read a short-lived access token from Application Default Credentials."""
+
     result = _run_command(
         ["gcloud", "auth", "application-default", "print-access-token"],
         capture_output=True,
@@ -169,6 +192,8 @@ def _get_adc_access_token() -> str:
 
 
 def _get_service_account_access_token(settings: Settings) -> str:
+    """Mint a Cloud API access token from a configured service account key."""
+
     if not settings.google_application_credentials:
         raise AuthSetupError(
             "GOOGLE_APPLICATION_CREDENTIALS must point to a service account file for service-account mode."
@@ -190,7 +215,10 @@ def _enable_required_services(
     access_token: str,
     services: Sequence[str],
 ) -> None:
+    """Enable the Google APIs required by the library for the chosen project."""
+
     with tempfile.NamedTemporaryFile("w", delete=False) as handle:
+        # `gcloud services enable` accepts an access-token file, not a raw token value.
         handle.write(access_token)
         token_path = handle.name
 
@@ -211,6 +239,8 @@ def _enable_required_services(
 
 
 def _require_gcloud() -> None:
+    """Fail fast when the Google Cloud CLI is unavailable."""
+
     _run_command(["gcloud", "--version"], capture_output=True)
 
 
@@ -219,12 +249,15 @@ def _run_command(
     *,
     capture_output: bool = False,
 ) -> subprocess.CompletedProcess[str]:
+    """Run a subprocess and convert common failures into `AuthSetupError`."""
+
     try:
         return subprocess.run(
             list(command),
             check=True,
             text=True,
             capture_output=capture_output,
+            env=_clean_subprocess_env(),
         )
     except FileNotFoundError as exc:
         raise AuthSetupError(f"Required command not found: {command[0]}") from exc
@@ -232,3 +265,13 @@ def _run_command(
         details = (exc.stderr or exc.stdout or "").strip()
         suffix = f": {details}" if details else "."
         raise AuthSetupError(f"Command failed: {' '.join(command)}{suffix}") from exc
+
+
+def _clean_subprocess_env() -> dict[str, str]:
+    """Drop empty credential-path variables that break downstream Google CLIs."""
+
+    env = os.environ.copy()
+    for key in EMPTY_PATH_ENV_VARS:
+        if env.get(key) == "":
+            env.pop(key, None)
+    return env

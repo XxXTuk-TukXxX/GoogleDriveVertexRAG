@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Callable
 
 import typer
 from rich import box
@@ -12,14 +12,17 @@ from rich.table import Table
 
 from drive_vertex_cli.auth_setup import (
     AuthSetupError,
+    AuthSetupSummary,
     apply_env_updates,
     complete_auth_setup,
     validate_existing_file,
 )
 from drive_vertex_cli.client import DriveVertexChatSession, DriveVertexClient
-from drive_vertex_cli.config import ConfigurationError, load_settings
+from drive_vertex_cli.config import ConfigurationError, Settings, load_settings
 from drive_vertex_cli.drive_client import build_drive_service, list_accessible_folders
 from drive_vertex_cli.env_file import read_env_values, upsert_env_file
+from drive_vertex_cli.indexer import SyncStats
+from drive_vertex_cli.retrieval import RetrievalAnswer
 
 app = typer.Typer(no_args_is_help=True, help="Index Google Drive content with Vertex AI.")
 
@@ -45,6 +48,8 @@ AI_LABELS = {
 
 
 def _prompt_choice(message: str, *, choices: set[str], default: str) -> str:
+    """Prompt until the user selects one of the allowed string choices."""
+
     while True:
         value = typer.prompt(message, default=default).strip().lower()
         if value in choices:
@@ -53,6 +58,8 @@ def _prompt_choice(message: str, *, choices: set[str], default: str) -> str:
 
 
 def _prompt_non_empty(message: str, *, default: str = "") -> str:
+    """Prompt until the user enters a non-empty value."""
+
     while True:
         value = typer.prompt(message, default=default).strip()
         if value:
@@ -61,6 +68,8 @@ def _prompt_non_empty(message: str, *, default: str = "") -> str:
 
 
 def _console_url(path: str, project_id: str | None) -> str:
+    """Build a project-scoped Google Cloud Console URL."""
+
     if project_id:
         return f"https://console.cloud.google.com{path}?project={project_id}"
     return f"https://console.cloud.google.com{path}"
@@ -72,6 +81,8 @@ def _missing_file_guidance(
     project_id: str | None,
     target_path: str,
 ) -> list[str]:
+    """Return actionable setup guidance for a missing credential file."""
+
     if kind == "drive_oauth_client":
         return [
             "Required file missing: Google Drive OAuth client JSON.",
@@ -102,6 +113,8 @@ def _missing_file_guidance(
 
 
 def _print_guidance(lines: list[str]) -> None:
+    """Render a guidance panel in the CLI."""
+
     ERROR_CONSOLE.print(
         Panel(
             "\n".join(lines),
@@ -114,6 +127,8 @@ def _print_guidance(lines: list[str]) -> None:
 
 
 def _print_error(message: str) -> None:
+    """Render a styled error panel in the CLI."""
+
     ERROR_CONSOLE.print(
         Panel(
             message,
@@ -126,6 +141,8 @@ def _print_error(message: str) -> None:
 
 
 def _print_auth_header(env_file: Path) -> None:
+    """Render the auth command header."""
+
     CONSOLE.print(
         Panel(
             (
@@ -142,6 +159,8 @@ def _print_auth_header(env_file: Path) -> None:
 
 
 def _print_ai_header(env_file: Path) -> None:
+    """Render the AI settings command header."""
+
     CONSOLE.print(
         Panel(
             (
@@ -157,6 +176,8 @@ def _print_ai_header(env_file: Path) -> None:
 
 
 def _ai_setting_rows(values: dict[str, str]) -> list[tuple[str, str]]:
+    """Convert raw env values into display rows for the AI settings table."""
+
     rows: list[tuple[str, str]] = []
     for key in (
         "VERTEX_GEMINI_MODEL",
@@ -174,6 +195,8 @@ def _ai_setting_rows(values: dict[str, str]) -> list[tuple[str, str]]:
 
 
 def _print_ai_settings(env_file: Path, values: dict[str, str], *, title: str) -> None:
+    """Render current or saved AI settings."""
+
     table = Table(
         title=title,
         box=box.ROUNDED,
@@ -198,6 +221,8 @@ def _print_ai_settings(env_file: Path, values: dict[str, str], *, title: str) ->
 
 
 def _effective_ai_values(existing: dict[str, str]) -> dict[str, str]:
+    """Merge explicit env values with library defaults for display and editing."""
+
     return {
         key: existing.get(key, default)
         for key, default in AI_DEFAULTS.items()
@@ -205,6 +230,8 @@ def _effective_ai_values(existing: dict[str, str]) -> dict[str, str]:
 
 
 def _normalize_embedding_dimensions_value(value: str) -> str:
+    """Normalize `auto` or a positive integer embedding dimension value."""
+
     normalized = value.strip().lower()
     if normalized in {"", "auto", "default", "model-default"}:
         return ""
@@ -220,6 +247,8 @@ def _normalize_embedding_dimensions_value(value: str) -> str:
 
 
 def _normalize_float_value(value: str, *, label: str, minimum: float = 0.0) -> str:
+    """Validate and normalize a floating-point CLI setting."""
+
     try:
         parsed = float(value)
     except ValueError as exc:
@@ -230,6 +259,8 @@ def _normalize_float_value(value: str, *, label: str, minimum: float = 0.0) -> s
 
 
 def _normalize_int_value(value: str, *, label: str, minimum: int) -> str:
+    """Validate and normalize an integer CLI setting."""
+
     try:
         parsed = int(value)
     except ValueError as exc:
@@ -243,8 +274,10 @@ def _prompt_validated(
     message: str,
     *,
     default: str,
-    normalizer,
+    normalizer: Callable[[str], str],
 ) -> str:
+    """Prompt repeatedly until a normalizer accepts the value."""
+
     while True:
         value = typer.prompt(message, default=default).strip()
         try:
@@ -254,6 +287,8 @@ def _prompt_validated(
 
 
 def _prompt_ai_updates(existing: dict[str, str]) -> dict[str, str]:
+    """Interactively collect AI settings and return them as env updates."""
+
     current = _effective_ai_values(existing)
     updates: dict[str, str] = {}
 
@@ -301,9 +336,11 @@ def _prompt_ai_updates(existing: dict[str, str]) -> dict[str, str]:
 def _print_auth_summary(
     *,
     env_file: Path,
-    summary,
+    summary: AuthSetupSummary,
     folder_id: str | None = None,
 ) -> None:
+    """Render the outcome of the auth bootstrap flow."""
+
     steps_table = Table(
         title="Setup Results",
         box=box.ROUNDED,
@@ -345,6 +382,8 @@ def _print_auth_summary(
 
 
 def _print_sync_header(folder_id: str, index_dir: Path) -> None:
+    """Render the sync command header."""
+
     details = Table.grid(padding=(0, 2))
     details.add_column(style="bold cyan", no_wrap=True)
     details.add_column()
@@ -361,7 +400,9 @@ def _print_sync_header(folder_id: str, index_dir: Path) -> None:
     )
 
 
-def _print_sync_summary(stats, index_dir: Path) -> None:
+def _print_sync_summary(stats: SyncStats, index_dir: Path) -> None:
+    """Render the sync summary and any skipped-file diagnostics."""
+
     summary_table = Table(
         title="Index Summary",
         box=box.ROUNDED,
@@ -403,6 +444,8 @@ def _prompt_path(
     missing_file_kind: str | None = None,
     project_id: str | None = None,
 ) -> str:
+    """Prompt for a file path, optionally validating that it already exists."""
+
     guidance_shown = False
     while True:
         value = typer.prompt(message, default=default).strip()
@@ -424,11 +467,15 @@ def _prompt_path(
 
 
 def _persist_selected_folder(folder_id: str) -> None:
+    """Persist the chosen Drive folder as the default for later sync runs."""
+
     upsert_env_file(DEFAULT_ENV_FILE, {"GOOGLE_DRIVE_FOLDER_ID": folder_id})
     apply_env_updates({"GOOGLE_DRIVE_FOLDER_ID": folder_id})
 
 
-def _choose_drive_folder(settings) -> str:
+def _choose_drive_folder(settings: Settings) -> str:
+    """Let the user pick a visible Drive folder from an interactive list."""
+
     service = build_drive_service(settings)
     folders = list_accessible_folders(service)
     if not folders:
@@ -487,7 +534,9 @@ def _choose_drive_folder(settings) -> str:
         _print_error("Enter a folder number from the list.")
 
 
-def _resolve_sync_folder_id(explicit_folder_id: str | None, settings) -> str:
+def _resolve_sync_folder_id(explicit_folder_id: str | None, settings: Settings) -> str:
+    """Resolve the sync folder from flags, interactive selection, or config."""
+
     if explicit_folder_id:
         return explicit_folder_id
 
@@ -827,6 +876,8 @@ def ask(
 
 
 def _run_interactive_chat(session: DriveVertexChatSession) -> None:
+    """Run a REPL-style chat loop against the current local index."""
+
     typer.echo("Interactive mode. Type your question and press Enter.")
     typer.echo("Type `exit`, `quit`, or `/exit` to leave.")
 
@@ -864,7 +915,9 @@ def _run_interactive_chat(session: DriveVertexChatSession) -> None:
         typer.echo("")
 
 
-def _print_answer(result) -> None:
+def _print_answer(result: RetrievalAnswer) -> None:
+    """Render an answer and de-duplicated source list to the terminal."""
+
     typer.echo(result.answer)
     if result.hits:
         typer.echo("\nSources:")

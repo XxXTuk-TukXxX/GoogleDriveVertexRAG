@@ -9,6 +9,8 @@ from google.genai import types
 
 
 class VertexClient:
+    """Small wrapper around the Vertex AI Python SDK used by the library."""
+
     def __init__(self, *, project: str, location: str) -> None:
         self.client = genai.Client(
             vertexai=True,
@@ -23,6 +25,8 @@ class VertexClient:
         model: str,
         output_dimensionality: int | None,
     ) -> np.ndarray:
+        """Embed a retrieval query and return it as a float32 NumPy vector."""
+
         return np.asarray(
             self.embed_texts(
                 [query],
@@ -43,6 +47,8 @@ class VertexClient:
         output_dimensionality: int | None,
         batch_size: int,
     ) -> list[list[float]]:
+        """Embed one or more texts using the configured Vertex embedding model."""
+
         vectors: list[list[float]] = []
         effective_batch_size = (
             1 if model == "gemini-embedding-001" else min(max(batch_size, 1), 5)
@@ -66,7 +72,9 @@ class VertexClient:
         contents: str | list[types.Content],
         model: str,
         config: types.GenerateContentConfig,
-    ):
+    ) -> Any:
+        """Call Gemini through the Vertex AI SDK."""
+
         return self.client.models.generate_content(
             model=model,
             contents=contents,
@@ -75,6 +83,8 @@ class VertexClient:
 
     @staticmethod
     def extract_text(response: Any) -> str:
+        """Extract visible text parts from a Gemini response object."""
+
         if (
             not getattr(response, "candidates", None)
             or not response.candidates[0].content
@@ -92,12 +102,16 @@ class VertexClient:
 
 
 def batched(values: Iterable[str], batch_size: int) -> Iterable[list[str]]:
+    """Yield fixed-size batches from an iterable of texts."""
+
     iterator = iter(values)
     while batch := list(islice(iterator, batch_size)):
         yield batch
 
 
-def _coerce_embeddings(response) -> list[list[float]]:
+def _coerce_embeddings(response: Any) -> list[list[float]]:
+    """Normalize SDK embedding responses into plain Python lists."""
+
     embeddings = getattr(response, "embeddings", None)
     if embeddings is None:
         raise RuntimeError("Vertex AI did not return embeddings.")
